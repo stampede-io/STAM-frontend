@@ -1,0 +1,9 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  ci:
+    uses: stampede-io/.github/.github/workflows/frontend-ci.yml@main
+    secrets: inherit
