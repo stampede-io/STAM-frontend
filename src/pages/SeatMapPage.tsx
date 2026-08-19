@@ -1,11 +1,13 @@
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import SeatMap from "../components/SeatMap";
 import { useSeatAvailability } from "../hooks/useSeatAvailability";
 import type { Seat } from "../types/seat";
+import type { Reservation } from "../types/reservation";
 
 export default function SeatMapPage() {
   const { showId } = useParams<{ showId: string }>();
+  const navigate = useNavigate();
   const { seats, loading, error, refresh } = useSeatAvailability(showId);
   const [justTakenMsg, setJustTakenMsg] = useState<string | null>(null);
 
@@ -26,7 +28,8 @@ export default function SeatMapPage() {
         throw new Error(`Hold failed: ${res.status}`);
       }
 
-      await refresh();
+      const reservation: Reservation = await res.json();
+      navigate("/checkout", { state: { reservation } });
     } catch (err) {
       setJustTakenMsg(
         err instanceof Error ? err.message : "Something went wrong",

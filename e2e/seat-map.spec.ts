@@ -35,23 +35,25 @@ test.describe("Seat Map", () => {
     await expect(confirmedSeat).toHaveClass(/bg-gray-400/);
   });
 
-  test("hold seat then seat turns yellow on next poll", async ({ page }) => {
-    let holdRequested = false;
+  test("hold seat navigates to checkout page", async ({ page }) => {
+    const reservation = {
+      reservationId: "res-1",
+      showId: SHOW_ID,
+      seatId: "s1",
+      section: "A",
+      rowLabel: "A",
+      seatNumber: 1,
+      priceCents: 5000,
+      expiresAt: new Date(Date.now() + 300_000).toISOString(),
+    };
 
     await page.route(HOLD_URL, async (route) => {
-      holdRequested = true;
-      await route.fulfill({ status: 200, json: { success: true } });
+      await route.fulfill({ status: 200, json: reservation });
     });
 
     await page.route(SEATS_URL, async (route) => {
       if (route.request().url().includes("/hold")) return route.fallback();
-      const seats = MOCK_SEATS.map((s) => {
-        if (s.id === "s1" && holdRequested) {
-          return { ...s, availability: "HELD" };
-        }
-        return s;
-      });
-      await route.fulfill({ json: seats });
+      await route.fulfill({ json: MOCK_SEATS });
     });
 
     await page.goto(`/shows/${SHOW_ID}/seats`);
@@ -61,8 +63,7 @@ test.describe("Seat Map", () => {
 
     await seat.click();
 
-    await expect(seat).toHaveAttribute("data-availability", "HELD", { timeout: 10_000 });
-    await expect(seat).toHaveClass(/bg-yellow-500/);
+    await expect(page).toHaveURL(/\/checkout/, { timeout: 10_000 });
   });
 
   test("409 response shows just-taken toast and refreshes map", async ({ page }) => {
