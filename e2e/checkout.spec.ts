@@ -1,0 +1,182 @@
+import { test, expect } from "@playwright/test";
+
+const SHOW_ID = "test-show-1";
+
+const MOCK_SEATS = [
+  { id: "s1", showId: SHOW_ID, section: "A", rowLabel: "A", seatNumber: 1, priceCents: 5000, availability: "AVAILABLE" },
+  { id: "s2", showId: SHOW_ID, section: "A", rowLabel: "A", seatNumber: 2, priceCents: 5000, availability: "AVAILABLE" },
+];
+
+const SEATS_URL = `**/api/v1/shows/${SHOW_ID}/seats`;
+const HOLD_URL = `**/api/v1/shows/${SHOW_ID}/seats/*/hold`;
+const PAYMENT_URL = "**/api/v1/payments";
+
+const MOCK_STRIPE_JS = `
+  window.Stripe = function() {
+    var mockElement = {
+      mount: function() {},
+      unmount: function() {},
+      destroy: function() {},
+      on: function() {},
+      update: function() {},
+    };
+    return {
+      elements: function() {
+        return {
+          create: function() { return mockElement; },
+          getElement: function() { return mockElement; },
+          update: function() {},
+        };
+      },
+      createToken: function() { return Promise.resolve({ token: { id: "tok_mock" } }); },
+      createPaymentMethod: function() {
+        return Promise.resolve({ paymentMethod: { id: "pm_test_mock_123" } });
+      },
+      confirmCardPayment: function() {
+        return Promise.resolve({ paymentIntent: { status: "succeeded" } });
+      },
+    };
+  };
+`;
+
+function makeReservation(expiresInMs = 300_000) {
+  return {
+    reservationId: "res-1",
+    showId: SHOW_ID,
+    seatId: "s1",
+    section: "A",
+    rowLabel: "A",
+    seatNumber: 1,
+    priceCents: 5000,
+    expiresAt: new Date(Date.now() + expiresInMs).toISOString(),
+  };
+}
+
+async function navigateToCheckout(page: import("@playwright/test").Page, expiresInMs = 300_000) {
+  const reservation = makeReservation(expiresInMs);
+
+  await page.addInitScript(MOCK_STRIPE_JS);
+
+  await page.route("**/js.stripe.com/**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/javascript",
+      body: "/* stripe already mocked via addInitScript */",
+    });
+  });
+
+  await page.route(SEATS_URL, async (route) => {
+    if (route.request().url().includes("/hold")) return route.fallback();
+    await route.fulfill({ json: MOCK_SEATS });
+  });
+
+  await page.route(HOLD_URL, async (route) => {
+    await route.fulfill({ status: 200, json: reservation });
+  });
+
+  await page.goto(`/shows/${SHOW_ID}/seats`);
+  await page.getByTestId("seat-A-1").click();
+  await expect(page).toHaveURL(/\/checkout/, { timeout: 10_000 });
+}
+
+test.describe("Checkout Flow", () => {
+  test("displays seat summary and countdown after hold", async ({ page }) => {
+    await navigateToCheckout(page);
+
+    const summary = page.getByTestId("seat-summary");
+    await expect(summary).toBeVisible();
+    await expect(summary).toContainText("Section A");
+    await expect(summary).toContainText("Row A");
+    await expect(summary).toContainText("Seat 1");
+    await expect(summary).toContainText("$50.00");
+
+    const countdown = page.getByTestId("countdown");
+    await expect(countdown).toBeVisible();
+    await expect(countdown).toContainText(/\d+:\d{2}/);
+  });
+
+  test("countdown turns orange/red at 60s threshold", async ({ page }) => {
+    await navigateToCheckout(page, 55_000);
+
+    const countdown = page.getByTestId("countdown");
+    await expect(countdown).toBeVisible();
+    await expect(countdown).toHaveClass(/text-orange-500/);
+  });
+
+  test("shows expired state when hold expires", async ({ page }) => {
+    await navigateToCheckout(page, 2_000);
+
+    const expired = page.getByTestId("hold-expired");
+    await expect(expired).toBeVisible({ timeout: 10_000 });
+    await expect(expired).toContainText("Your hold has expired");
+
+    const backButton = page.getByTestId("back-to-seats");
+    await expect(backButton).toBeVisible();
+  });
+
+  test("shows payment form with pay button", async ({ page }) => {
+    await navigateToCheckout(page);
+
+    const form = page.getByTestId("payment-form");
+    await expect(form).toBeVisible();
+
+    const payButton = page.getByTestId("pay-button");
+    await expect(payButton).toBeVisible();
+    await expect(payButton).toContainText("Pay now");
+  });
+
+  test("payment success shows confirmation", async ({ page }) => {
+    await navigateToCheckout(page);
+
+    await page.route(PAYMENT_URL, async (route) => {
+      await route.fulfill({
+        json: { status: "SUCCESS", bookingId: "booking-1" },
+      });
+    });
+
+    await page.getByTestId("pay-button").click();
+
+    const success = page.getByTestId("payment-success");
+    await expect(success).toBeVisible({ timeout: 10_000 });
+    await expect(success).toContainText("Booking confirmed");
+  });
+
+  test("payment failure shows error message", async ({ page }) => {
+    await navigateToCheckout(page);
+
+    await page.route(PAYMENT_URL, async (route) => {
+      await route.fulfill({
+        status: 402,
+        json: { status: "FAILED", message: "Insufficient funds" },
+      });
+    });
+
+    await page.getByTestId("pay-button").click();
+
+    const error = page.getByTestId("payment-error");
+    await expect(error).toBeVisible({ timeout: 10_000 });
+    await expect(error).toContainText("Insufficient funds");
+  });
+
+  test("payment expired shows hold expired screen", async ({ page }) => {
+    await navigateToCheckout(page);
+
+    await page.route(PAYMENT_URL, async (route) => {
+      await route.fulfill({
+        status: 410,
+        json: { status: "EXPIRED", message: "Hold expired during payment" },
+      });
+    });
+
+    await page.getByTestId("pay-button").click();
+
+    const expired = page.getByTestId("hold-expired");
+    await expect(expired).toBeVisible({ timeout: 10_000 });
+    await expect(expired).toContainText("Your hold has expired");
+  });
+
+  test("no reservation redirects to events page", async ({ page }) => {
+    await page.goto("/checkout");
+    await expect(page.getByText("No reservation found")).toBeVisible();
+  });
+});
