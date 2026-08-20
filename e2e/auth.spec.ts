@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 
 const AUTH_CONFIG = {
   authorizeUrl: "/api/v1/oauth2/authorize",
@@ -8,12 +8,6 @@ const AUTH_CONFIG = {
 };
 
 test.describe("PKCE Auth Flow", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.route("**/api/v1/oauth2/refresh", (route) =>
-      route.fulfill({ status: 401, body: "no session" }),
-    );
-  });
-
   test("shows login button when unauthenticated", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByTestId("login-button")).toBeVisible();
