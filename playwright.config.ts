@@ -25,7 +25,7 @@ export default defineConfig({
       testDir: "./e2e/integration",
       use: {
         ...devices["Desktop Chrome"],
-        baseURL: process.env.BASE_URL ?? "http://localhost:3000",
+        baseURL: process.env.BASE_URL ?? "http://localhost:5173",
       },
       timeout: 60_000,
     },
