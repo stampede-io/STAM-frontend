@@ -24,6 +24,13 @@ export default function SeatMapPage() {
         return;
       }
 
+      if (res.status === 429) {
+        const retryAfter = res.headers.get("Retry-After") ?? "a few";
+        setJustTakenMsg(`Slow down — please try again in ${retryAfter} seconds`);
+        setTimeout(() => setJustTakenMsg(null), 5000);
+        return;
+      }
+
       if (!res.ok) {
         throw new Error(`Hold failed: ${res.status}`);
       }
