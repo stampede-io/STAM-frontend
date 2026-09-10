@@ -1,0 +1,127 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit configuration for STAM-frontend
+# React 19 + Vite 6 + TS SPA. Seat map, checkout, PKCE auth.
+language: en-US
+early_access: false
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: true
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - "Dev"
+      - "main"
+
+  path_filters:
+    - "!**/node_modules/**"
+    - "!**/dist/**"
+    - "!**/*.tsbuildinfo"
+    - "!**/playwright-report/**"
+    - "!**/test-results/**"
+    - "!**/*.min.js"
+
+  path_instructions:
+    - path: "src/auth/**"
+      instructions: >
+        PKCE (S256) against a public OAuth 2.1 client. The threat model
+        depends on token placement: access tokens live IN MEMORY ONLY, refresh
+        tokens live in an httpOnly cookie set by the server. Flag as a
+        must-fix any token, code verifier, or refresh value written to
+        localStorage, sessionStorage, a non-httpOnly cookie, a URL query
+        string, or a log line - that is the single most damaging change
+        possible in this directory. Flag any client secret introduced (this is
+        a public client, there is no secret). Flag a PKCE code verifier that
+        is not cryptographically random or a challenge method other than S256.
+        Flag any change to the 401 interceptor that could produce an infinite
+        refresh loop or lose request deduplication.
+        KNOWN OPEN BUG - the default auth paths here (/api/v1/oauth2/authorize,
+        /token, /refresh, /logout) are served by nothing and match no gateway
+        route; the gateway exposes /oauth2/** and /api/v1/users/**. If a PR
+        touches these paths, check whether it is fixing that bug properly or
+        entrenching it, and say which.
+
+    - path: "vite.config.ts"
+      instructions: >
+        KNOWN OPEN BUG - the dev proxy currently targets http://localhost:8080,
+        which is Kafka UI in compose-dev. The gateway is on 8085. If a PR
+        touches this, verify the target is the gateway and flag any hardcoded
+        port that is not overridable by an environment variable.
+
+    - path: "src/**"
+      instructions: >
+        Flag hardcoded API origins or absolute backend URLs - all traffic goes
+        through the configured proxy or base URL, never a literal
+        http://localhost:PORT in component or hook code. Flag any secret,
+        token, or Stripe SECRET key embedded client-side (only the publishable
+        key belongs in the browser). Flag useEffect hooks with missing or
+        over-broad dependency arrays, particularly in polling hooks like
+        useSeatAvailability where a wrong dep array means a leaked interval or
+        a request storm against a rate-limited gateway. Flag polling that does
+        not clean up on unmount. The UI must handle 409 (seat taken) and 429
+        (rate limited) explicitly - flag new API calls that treat every
+        non-200 identically. Note the React 19 constraint learned here:
+        exporting a provider component and its hook from the same file breaks
+        react-refresh, which is why useAuth lives apart from AuthContext -
+        flag any change that recombines them.
+
+    - path: "e2e/**"
+      instructions: >
+        Playwright, page-object pattern, with a global auth fixture. IMPORTANT
+        CONTEXT: this suite mocks nearly every API call with page.route(),
+        which is why a completely broken SPA-to-gateway connection shipped in
+        v0.2.0 undetected. When reviewing a NEW spec, flag it if it mocks the
+        entire backend and therefore cannot catch an integration failure -
+        say so explicitly and ask whether an unmocked variant is needed. Flag
+        addInitScript called after the first goto(), which silently does not
+        apply on SPA navigations. Flag hard waits (waitForTimeout) used in
+        place of a web-first assertion. Note that eslint intentionally
+        excludes this directory because react-hooks/rules-of-hooks
+        misidentifies Playwright's `use` fixture callback as a React hook -
+        do not suggest re-including it.
+
+    - path: "playwright.config.ts"
+      instructions: >
+        webServer is deliberately undefined when CI is set. The nightly
+        workflow sets CI=true and does not start a dev server, so every test
+        currently fails with ERR_CONNECTION_REFUSED. If a PR touches this
+        file, check whether it fixes that (either start the server in CI or
+        define webServer for CI) and flag a change that leaves the gap open.
+
+    - path: "package.json"
+      instructions: >
+        Flag a new runtime dependency that duplicates something already
+        present or that the platform provides natively. Note that
+        frontend-ci.yml runs lint and build but NOT npm test - if a PR adds
+        tests, mention that they will not gate CI until the shared workflow in
+        the .github repo is updated.
+
+  tools:
+    eslint:
+      enabled: true
+    gitleaks:
+      enabled: true
+    yamllint:
+      enabled: true
+    markdownlint:
+      enabled: true
+    actionlint:
+      enabled: true
+    hadolint:
+      enabled: true
+    semgrep:
+      enabled: true
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  learnings:
+    scope: auto
+  issues:
+    scope: auto
