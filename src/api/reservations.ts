@@ -1,4 +1,5 @@
 import { decodeJwtClaims } from "../auth/jwt";
+import type { AuthFetch } from "../auth/authFetch";
 
 /** Shape returned by booking's POST /api/v1/reservations (ReservationResponse). */
 export interface HeldReservation {
@@ -34,18 +35,18 @@ export async function holdSeat(
   showId: string,
   seatId: string,
   accessToken: string,
+  authFetch: AuthFetch,
 ): Promise<HeldReservation> {
   const userId = decodeJwtClaims(accessToken).user_id;
   if (typeof userId !== "string") {
     throw new Error("Access token is missing the user_id claim");
   }
 
-  const res = await fetch("/api/v1/reservations", {
+  const res = await authFetch("/api/v1/reservations", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Idempotency-Key": crypto.randomUUID(),
-      Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify({ showId, userId, seatIds: [seatId] }),
   });
