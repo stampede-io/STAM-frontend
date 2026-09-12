@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { LoginPage } from "./pages";
+import { LoginPage, onlyMethod } from "./pages";
 
 const SHOW_ID = "test-show-1";
 
@@ -59,9 +59,8 @@ async function mockReservationOutcome(
   page: import("@playwright/test").Page,
   status: "CONFIRMED" | "RELEASED" | "EXPIRED",
 ) {
-  await page.route(RESERVATION_STATUS_URL, (route) => {
-    if (route.request().method() !== "GET") return route.fallback();
-    return route.fulfill({
+  await page.route(RESERVATION_STATUS_URL, onlyMethod("GET", (route) =>
+    route.fulfill({
       status: 200,
       contentType: "application/json",
       json: {
@@ -73,8 +72,8 @@ async function mockReservationOutcome(
         expiresAt: new Date(Date.now() + 300_000).toISOString(),
         ttlSeconds: 300,
       },
-    });
-  });
+    }),
+  ));
 }
 
 async function navigateToCheckout(page: import("@playwright/test").Page, expiresInMs = 300_000) {
@@ -97,10 +96,9 @@ async function navigateToCheckout(page: import("@playwright/test").Page, expires
     await route.fulfill({ json: MOCK_SEATS });
   });
 
-  await page.route(HOLD_URL, async (route) => {
-    if (route.request().method() !== "POST") return route.fallback();
-    await route.fulfill({ status: 201, json: reservation });
-  });
+  await page.route(HOLD_URL, onlyMethod("POST", (route) =>
+    route.fulfill({ status: 201, json: reservation }),
+  ));
 
   await page.goto(`/shows/${SHOW_ID}/seats`);
   await page.getByTestId("seat-A-1").click();
@@ -166,12 +164,32 @@ test.describe("Checkout Flow", () => {
     await expect(success).toContainText("Booking confirmed");
   });
 
-  test("payment failure shows error message", async ({ page }) => {
+  test("payment failure surfaces the backend's ProblemDetail message", async ({ page }) => {
     await navigateToCheckout(page);
 
     // The saga runs asynchronously — a synchronous failure here means
-    // submit-payment itself couldn't be started (e.g. gateway/server error),
-    // not a card decline (declines only surface via reservation status).
+    // submit-payment itself couldn't be started (e.g. reservation isn't HELD
+    // any more), not a card decline (declines only surface via reservation
+    // status). Booking's errors are RFC 7807 ProblemDetail — the "detail"
+    // field is the human-readable reason and should reach the user.
+    await page.route(SUBMIT_PAYMENT_URL, (route) =>
+      route.fulfill({
+        status: 409,
+        contentType: "application/problem+json",
+        json: { detail: "Reservation is not in a payable state" },
+      }),
+    );
+
+    await page.getByTestId("pay-button").click();
+
+    const error = page.getByTestId("payment-error");
+    await expect(error).toBeVisible({ timeout: 10_000 });
+    await expect(error).toContainText("Reservation is not in a payable state");
+  });
+
+  test("payment failure falls back to a generic message on a non-JSON error", async ({ page }) => {
+    await navigateToCheckout(page);
+
     await page.route(SUBMIT_PAYMENT_URL, (route) =>
       route.fulfill({ status: 500, body: "Internal error" }),
     );

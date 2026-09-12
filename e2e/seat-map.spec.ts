@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import { LoginPage } from "./pages";
+import { LoginPage, onlyMethod } from "./pages";
 
 const SHOW_ID = "test-show-1";
 
@@ -47,10 +47,9 @@ test.describe("Seat Map", () => {
       ttlSeconds: 300,
     };
 
-    await page.route(HOLD_URL, (route) => {
-      if (route.request().method() !== "POST") return route.fallback();
-      return route.fulfill({ status: 201, json: reservation });
-    });
+    await page.route(HOLD_URL, onlyMethod("POST", (route) =>
+      route.fulfill({ status: 201, json: reservation }),
+    ));
 
     await page.route(SEATS_URL, (route) => route.fulfill({ json: MOCK_SEATS }));
 
@@ -64,17 +63,48 @@ test.describe("Seat Map", () => {
     await expect(page).toHaveURL(/\/checkout/, { timeout: 10_000 });
   });
 
+  test("hold seat retries with a refreshed token after a 401", async ({ page }) => {
+    const login = new LoginPage(page);
+    await login.mockPkceLogin();
+
+    let holdAttempts = 0;
+    await page.route(HOLD_URL, onlyMethod("POST", (route) => {
+      holdAttempts++;
+      if (holdAttempts === 1) return route.fulfill({ status: 401 });
+      return route.fulfill({
+        status: 201,
+        json: {
+          reservationId: "res-401-retry",
+          showId: SHOW_ID,
+          userId: "e2e-user",
+          status: "HELD",
+          seatIds: ["s1"],
+          expiresAt: new Date(Date.now() + 300_000).toISOString(),
+          ttlSeconds: 300,
+        },
+      });
+    }));
+
+    // mockPkceLogin already wires a refresh route that returns a fresh token.
+    await page.route(SEATS_URL, (route) => route.fulfill({ json: MOCK_SEATS }));
+
+    await page.goto(`/shows/${SHOW_ID}/seats`);
+    await page.getByTestId("seat-A-1").click();
+
+    await expect(page).toHaveURL(/\/checkout/, { timeout: 10_000 });
+    expect(holdAttempts).toBe(2);
+  });
+
   test("409 response shows just-taken toast and refreshes map", async ({ page }) => {
     const login = new LoginPage(page);
     await login.mockPkceLogin();
 
     let holdAttempted = false;
 
-    await page.route(HOLD_URL, (route) => {
-      if (route.request().method() !== "POST") return route.fallback();
+    await page.route(HOLD_URL, onlyMethod("POST", (route) => {
       holdAttempted = true;
       return route.fulfill({ status: 409, json: { error: "Seat already held" } });
-    });
+    }));
 
     await page.route(SEATS_URL, (route) => {
       if (holdAttempted) {

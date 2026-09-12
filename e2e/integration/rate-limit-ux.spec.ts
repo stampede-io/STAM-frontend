@@ -1,5 +1,5 @@
 import { test, expect } from "../fixtures";
-import { LoginPage, SeatMapPage } from "../pages";
+import { LoginPage, SeatMapPage, onlyMethod } from "../pages";
 import type { MockSeat } from "../pages";
 
 const SHOW_ID = "test-show-ratelimit";
@@ -42,8 +42,7 @@ test.describe("Rate-Limit UX", () => {
     await seatMap.mockSeats(MOCK_SEATS);
 
     // First hold succeeds, subsequent ones get rate-limited
-    await page.route("**/api/v1/reservations", (route) => {
-      if (route.request().method() !== "POST") return route.fallback();
+    await page.route("**/api/v1/reservations", onlyMethod("POST", (route) => {
       holdCount++;
       if (holdCount === 1) {
         const expiresAt = new Date(Date.now() + 300_000).toISOString();
@@ -66,7 +65,7 @@ test.describe("Rate-Limit UX", () => {
         headers: { "Retry-After": "15" },
         body: "Too many requests",
       });
-    });
+    }));
 
     // Inject Stripe mock for potential checkout navigation
     await page.addInitScript(`

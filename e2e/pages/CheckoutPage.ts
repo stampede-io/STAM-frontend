@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import { onlyMethod } from "./routeGuard";
 
 export class CheckoutPage {
   constructor(private page: Page) {}
@@ -39,22 +40,24 @@ export class CheckoutPage {
     await this.page.route("**/api/v1/reservations/*/submit-payment", (route) =>
       route.fulfill({ status: 202 }),
     );
-    await this.page.route("**/api/v1/reservations/*", (route) => {
-      if (route.request().method() !== "GET") return route.fallback();
-      return route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          reservationId: "res-1",
-          showId: "unused",
-          userId: "unused",
-          status,
-          seatIds: [],
-          expiresAt: new Date(Date.now() + 300_000).toISOString(),
-          ttlSeconds: 300,
+    await this.page.route(
+      "**/api/v1/reservations/*",
+      onlyMethod("GET", (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            reservationId: "res-1",
+            showId: "unused",
+            userId: "unused",
+            status,
+            seatIds: [],
+            expiresAt: new Date(Date.now() + 300_000).toISOString(),
+            ttlSeconds: 300,
+          }),
         }),
-      });
-    });
+      ),
+    );
   }
 
   /** Saga confirms the reservation — payment succeeded. */
