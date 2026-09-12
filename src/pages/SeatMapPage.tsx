@@ -2,46 +2,58 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import SeatMap from "../components/SeatMap";
 import { useSeatAvailability } from "../hooks/useSeatAvailability";
+import { useAuth } from "../auth/useAuth";
+import {
+  holdSeat,
+  RateLimitedError,
+  SeatUnavailableError,
+} from "../api/reservations";
 import type { Seat } from "../types/seat";
 import type { Reservation } from "../types/reservation";
 
 export default function SeatMapPage() {
   const { showId } = useParams<{ showId: string }>();
   const navigate = useNavigate();
+  const { getAccessToken } = useAuth();
   const { seats, loading, error, refresh } = useSeatAvailability(showId);
   const [justTakenMsg, setJustTakenMsg] = useState<string | null>(null);
 
-  async function handleSeatClick(seat: Seat) {
-    try {
-      const res = await fetch(`/api/v1/shows/${showId}/seats/${seat.id}/hold`, {
-        method: "POST",
-      });
+  function flash(message: string, ms = 3000) {
+    setJustTakenMsg(message);
+    setTimeout(() => setJustTakenMsg(null), ms);
+  }
 
-      if (res.status === 409) {
-        setJustTakenMsg("That seat was just taken — please select another");
-        setTimeout(() => setJustTakenMsg(null), 3000);
+  async function handleSeatClick(seat: Seat) {
+    const token = getAccessToken();
+    if (!token) {
+      flash("Please log in to reserve a seat");
+      return;
+    }
+
+    try {
+      const held = await holdSeat(showId!, seat.id, token);
+      const reservation: Reservation = {
+        reservationId: held.reservationId,
+        showId: held.showId,
+        seatId: seat.id,
+        section: seat.section,
+        rowLabel: seat.rowLabel,
+        seatNumber: seat.seatNumber,
+        priceCents: seat.priceCents,
+        expiresAt: held.expiresAt,
+      };
+      navigate("/checkout", { state: { reservation } });
+    } catch (err) {
+      if (err instanceof SeatUnavailableError) {
+        flash("That seat was just taken — please select another");
         await refresh();
         return;
       }
-
-      if (res.status === 429) {
-        const retryAfter = res.headers.get("Retry-After") ?? "a few";
-        setJustTakenMsg(`Slow down — please try again in ${retryAfter} seconds`);
-        setTimeout(() => setJustTakenMsg(null), 5000);
+      if (err instanceof RateLimitedError) {
+        flash(`Slow down — please try again in ${err.retryAfter} seconds`, 5000);
         return;
       }
-
-      if (!res.ok) {
-        throw new Error(`Hold failed: ${res.status}`);
-      }
-
-      const reservation: Reservation = await res.json();
-      navigate("/checkout", { state: { reservation } });
-    } catch (err) {
-      setJustTakenMsg(
-        err instanceof Error ? err.message : "Something went wrong",
-      );
-      setTimeout(() => setJustTakenMsg(null), 3000);
+      flash(err instanceof Error ? err.message : "Something went wrong");
     }
   }
 
