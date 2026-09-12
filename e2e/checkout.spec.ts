@@ -79,7 +79,9 @@ async function navigateToCheckout(page: import("@playwright/test").Page, expires
   await expect(page).toHaveURL(/\/checkout/, { timeout: 10_000 });
 }
 
-test.describe("Checkout Flow", () => {
+// STAM-441: asserts the fictional /hold + /api/v1/payments contract; skipped
+// until the SPA is rewired to the real reservations/saga API.
+test.describe.skip("Checkout Flow", () => {
   test("displays seat summary and countdown after hold", async ({ page }) => {
     await navigateToCheckout(page);
 

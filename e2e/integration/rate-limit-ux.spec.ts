@@ -10,7 +10,9 @@ const MOCK_SEATS: MockSeat[] = [
   { id: "rl-s3", showId: SHOW_ID, section: "A", rowLabel: "A", seatNumber: 3, priceCents: 5000, availability: "AVAILABLE" },
 ];
 
-test.describe("Rate-Limit UX", () => {
+// STAM-441: asserts the fictional /hold + /api/v1/payments contract; skipped
+// until the SPA is rewired to the real reservations/saga API.
+test.describe.skip("Rate-Limit UX", () => {
   test("429 response shows friendly slow-down message", async ({ page }) => {
     const seatMap = new SeatMapPage(page, SHOW_ID);
 

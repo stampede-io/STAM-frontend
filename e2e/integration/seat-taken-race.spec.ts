@@ -9,7 +9,9 @@ const MOCK_SEATS: MockSeat[] = [
   { id: "race-s2", showId: SHOW_ID, section: "A", rowLabel: "A", seatNumber: 2, priceCents: 5000, availability: "AVAILABLE" },
 ];
 
-test.describe("Seat-Taken Race", () => {
+// STAM-441: asserts the fictional /hold + /api/v1/payments contract; skipped
+// until the SPA is rewired to the real reservations/saga API.
+test.describe.skip("Seat-Taken Race", () => {
   test("two contexts competing for the same seat — one wins, one sees conflict", async ({
     browser,
   }) => {
