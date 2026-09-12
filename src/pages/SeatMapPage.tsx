@@ -14,7 +14,7 @@ import type { Reservation } from "../types/reservation";
 export default function SeatMapPage() {
   const { showId } = useParams<{ showId: string }>();
   const navigate = useNavigate();
-  const { getAccessToken, isLoading: authLoading } = useAuth();
+  const { getAccessToken, authFetch, isLoading: authLoading } = useAuth();
   const { seats, loading, error, refresh } = useSeatAvailability(showId);
   const [justTakenMsg, setJustTakenMsg] = useState<string | null>(null);
 
@@ -38,7 +38,7 @@ export default function SeatMapPage() {
     }
 
     try {
-      const held = await holdSeat(showId!, seat.id, token);
+      const held = await holdSeat(showId!, seat.id, token, authFetch);
       const reservation: Reservation = {
         reservationId: held.reservationId,
         showId: held.showId,

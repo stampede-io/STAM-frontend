@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import { onlyMethod } from "./routeGuard";
 
 export interface MockSeat {
   id: string;
@@ -7,18 +8,18 @@ export interface MockSeat {
   rowLabel: string;
   seatNumber: number;
   priceCents: number;
-  availability: "AVAILABLE" | "HELD" | "SOLD";
+  availability: "AVAILABLE" | "HELD" | "CONFIRMED" | "EXPIRED";
 }
 
+/** Shape of booking's real ReservationResponse (POST /api/v1/reservations). */
 export interface MockReservation {
   reservationId: string;
   showId: string;
-  seatId: string;
-  section: string;
-  rowLabel: string;
-  seatNumber: number;
-  priceCents: number;
+  userId?: string;
+  status?: string;
+  seatIds?: string[];
   expiresAt: string;
+  ttlSeconds?: number;
 }
 
 export class SeatMapPage {
@@ -49,32 +50,42 @@ export class SeatMapPage {
 
   async mockHoldSuccess(reservation: MockReservation) {
     await this.page.route(
-      `**/api/v1/shows/${this.showId}/seats/*/hold`,
-      (route) =>
+      "**/api/v1/reservations",
+      onlyMethod("POST", (route) =>
         route.fulfill({
-          status: 200,
+          status: 201,
           contentType: "application/json",
-          body: JSON.stringify(reservation),
+          body: JSON.stringify({
+            userId: "e2e-user",
+            status: "HELD",
+            seatIds: [],
+            ttlSeconds: 300,
+            ...reservation,
+          }),
         }),
+      ),
     );
   }
 
   async mockHoldConflict() {
     await this.page.route(
-      `**/api/v1/shows/${this.showId}/seats/*/hold`,
-      (route) => route.fulfill({ status: 409, body: "seat taken" }),
+      "**/api/v1/reservations",
+      onlyMethod("POST", (route) =>
+        route.fulfill({ status: 409, body: "seat taken" }),
+      ),
     );
   }
 
   async mockHoldRateLimit(retryAfter = 10) {
     await this.page.route(
-      `**/api/v1/shows/${this.showId}/seats/*/hold`,
-      (route) =>
+      "**/api/v1/reservations",
+      onlyMethod("POST", (route) =>
         route.fulfill({
           status: 429,
           headers: { "Retry-After": String(retryAfter) },
           body: "rate limited",
         }),
+      ),
     );
   }
 

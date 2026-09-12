@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import { onlyMethod } from "./routeGuard";
 
 export class CheckoutPage {
   constructor(private page: Page) {}
@@ -35,33 +36,42 @@ export class CheckoutPage {
     return this.page.getByTestId("back-to-seats");
   }
 
+  private async mockOutcome(status: "CONFIRMED" | "RELEASED" | "EXPIRED") {
+    await this.page.route("**/api/v1/reservations/*/submit-payment", (route) =>
+      route.fulfill({ status: 202 }),
+    );
+    await this.page.route(
+      "**/api/v1/reservations/*",
+      onlyMethod("GET", (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            reservationId: "res-1",
+            showId: "unused",
+            userId: "unused",
+            status,
+            seatIds: [],
+            expiresAt: new Date(Date.now() + 300_000).toISOString(),
+            ttlSeconds: 300,
+          }),
+        }),
+      ),
+    );
+  }
+
+  /** Saga confirms the reservation — payment succeeded. */
   async mockPaymentSuccess() {
-    await this.page.route("**/api/v1/payments", (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ status: "SUCCESS", bookingId: "booking-1" }),
-      }),
-    );
+    await this.mockOutcome("CONFIRMED");
   }
 
+  /** Saga compensates and releases the seats — payment declined. */
   async mockPaymentFailure() {
-    await this.page.route("**/api/v1/payments", (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ status: "FAILED" }),
-      }),
-    );
+    await this.mockOutcome("RELEASED");
   }
 
+  /** Hold expired before/during payment. */
   async mockPaymentExpired() {
-    await this.page.route("**/api/v1/payments", (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ status: "EXPIRED" }),
-      }),
-    );
+    await this.mockOutcome("EXPIRED");
   }
 }

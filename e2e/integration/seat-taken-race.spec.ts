@@ -1,5 +1,5 @@
 import { test, expect } from "../fixtures";
-import { SeatMapPage } from "../pages";
+import { LoginPage, SeatMapPage, fakeJwt } from "../pages";
 import type { MockSeat } from "../pages";
 
 const SHOW_ID = "test-show-race";
@@ -9,9 +9,7 @@ const MOCK_SEATS: MockSeat[] = [
   { id: "race-s2", showId: SHOW_ID, section: "A", rowLabel: "A", seatNumber: 2, priceCents: 5000, availability: "AVAILABLE" },
 ];
 
-// STAM-441: asserts the fictional /hold + /api/v1/payments contract; skipped
-// until the SPA is rewired to the real reservations/saga API.
-test.describe.skip("Seat-Taken Race", () => {
+test.describe("Seat-Taken Race", () => {
   test("two contexts competing for the same seat — one wins, one sees conflict", async ({
     browser,
   }) => {
@@ -20,12 +18,10 @@ test.describe.skip("Seat-Taken Race", () => {
     const page1 = await ctx1.newPage();
     const page2 = await ctx2.newPage();
 
-    // Mock refresh for both contexts
-    for (const page of [page1, page2]) {
-      await page.route("**/api/v1/oauth2/refresh", (route) =>
-        route.fulfill({ status: 401, body: "no session" }),
-      );
-    }
+    const login1 = new LoginPage(page1);
+    const login2 = new LoginPage(page2);
+    await login1.mockPkceLogin(fakeJwt({ user_id: "race-winner" }));
+    await login2.mockPkceLogin(fakeJwt({ user_id: "race-loser" }));
 
     const seatMap1 = new SeatMapPage(page1, SHOW_ID);
     const seatMap2 = new SeatMapPage(page2, SHOW_ID);
@@ -39,11 +35,7 @@ test.describe.skip("Seat-Taken Race", () => {
     await seatMap1.mockHoldSuccess({
       reservationId: "res-race-winner",
       showId: SHOW_ID,
-      seatId: "race-s1",
-      section: "A",
-      rowLabel: "A",
-      seatNumber: 1,
-      priceCents: 5000,
+      seatIds: ["race-s1"],
       expiresAt,
     });
 

@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Elements,
   CardElement,
@@ -8,7 +8,8 @@ import {
 } from "@stripe/react-stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
 import { useCountdown } from "../hooks/useCountdown";
-import { submitPayment } from "../api/payments";
+import { submitPayment, pollReservationOutcome } from "../api/payments";
+import { useAuth } from "../auth/useAuth";
 import type { Reservation } from "../types/reservation";
 
 const stripePromise = loadStripe(
@@ -22,11 +23,15 @@ function CheckoutForm({ reservation }: { reservation: Reservation }) {
   const stripe = useStripe();
   const elements = useElements();
   const navigate = useNavigate();
+  const { authFetch } = useAuth();
   const { secondsLeft, expired, formatted } = useCountdown(
     reservation.expiresAt,
   );
   const [status, setStatus] = useState<PaymentStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const WARNING_THRESHOLD = 60;
   const isWarning = secondsLeft <= WARNING_THRESHOLD && secondsLeft > 0;
@@ -52,7 +57,12 @@ function CheckoutForm({ reservation }: { reservation: Reservation }) {
     const cardElement = elements.getElement(CardElement);
     if (!cardElement) return;
 
-    const { error, paymentMethod } = await stripe.createPaymentMethod({
+    // Validates the card client-side before we start the saga. The resulting
+    // paymentMethod id has nowhere to go yet — booking's submit-payment takes
+    // no request body and never threads a paymentMethodId through to payment's
+    // AuthorizePayment command (see STAM-booking), so every real authorize
+    // currently fails with "missing_payment_method" until that's fixed.
+    const { error } = await stripe.createPaymentMethod({
       type: "card",
       card: cardElement,
     });
@@ -63,18 +73,23 @@ function CheckoutForm({ reservation }: { reservation: Reservation }) {
       return;
     }
 
-    const result = await submitPayment({
-      reservationId: reservation.reservationId,
-      paymentMethodId: paymentMethod.id,
-    });
+    const controller = new AbortController();
+    abortRef.current = controller;
 
-    if (result.status === "SUCCESS") {
-      setStatus("success");
-    } else if (result.status === "EXPIRED") {
-      setStatus("expired");
-    } else {
+    try {
+      await submitPayment(reservation.reservationId, authFetch, controller.signal);
+      const outcome = await pollReservationOutcome(
+        reservation.reservationId,
+        authFetch,
+        controller.signal,
+      );
+      setStatus(outcome.status === "CONFIRMED" ? "success" : "expired");
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       setStatus("failure");
-      setErrorMessage(result.message ?? "Payment failed — please try again");
+      setErrorMessage(
+        err instanceof Error ? err.message : "Payment failed — please try again",
+      );
     }
   }
 
