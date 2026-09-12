@@ -1,12 +1,20 @@
 import { decodeJwtClaims } from "../auth/jwt";
 import type { AuthFetch } from "../auth/authFetch";
 
+/** Mirrors booking's ReservationStatus enum. */
+export type ReservationState =
+  | "HELD"
+  | "CONFIRMED"
+  | "RELEASED"
+  | "EXPIRED"
+  | "REFUNDED";
+
 /** Shape returned by booking's POST /api/v1/reservations (ReservationResponse). */
 export interface HeldReservation {
   reservationId: string;
   showId: string;
   userId: string;
-  status: string;
+  status: ReservationState;
   seatIds: string[];
   expiresAt: string;
   ttlSeconds: number;

@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Elements,
   CardElement,
@@ -29,6 +29,9 @@ function CheckoutForm({ reservation }: { reservation: Reservation }) {
   );
   const [status, setStatus] = useState<PaymentStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const WARNING_THRESHOLD = 60;
   const isWarning = secondsLeft <= WARNING_THRESHOLD && secondsLeft > 0;
@@ -70,14 +73,19 @@ function CheckoutForm({ reservation }: { reservation: Reservation }) {
       return;
     }
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
-      await submitPayment(reservation.reservationId, authFetch);
+      await submitPayment(reservation.reservationId, authFetch, controller.signal);
       const outcome = await pollReservationOutcome(
         reservation.reservationId,
         authFetch,
+        controller.signal,
       );
       setStatus(outcome.status === "CONFIRMED" ? "success" : "expired");
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       setStatus("failure");
       setErrorMessage(
         err instanceof Error ? err.message : "Payment failed — please try again",
