@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:real": "RUN_REAL_E2E=1 playwright test --project=real"
   },
   "dependencies": {
     "@stripe/react-stripe-js": "^6.8.1",
