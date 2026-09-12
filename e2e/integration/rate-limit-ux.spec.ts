@@ -1,5 +1,5 @@
 import { test, expect } from "../fixtures";
-import { SeatMapPage } from "../pages";
+import { LoginPage, SeatMapPage } from "../pages";
 import type { MockSeat } from "../pages";
 
 const SHOW_ID = "test-show-ratelimit";
@@ -10,10 +10,11 @@ const MOCK_SEATS: MockSeat[] = [
   { id: "rl-s3", showId: SHOW_ID, section: "A", rowLabel: "A", seatNumber: 3, priceCents: 5000, availability: "AVAILABLE" },
 ];
 
-// STAM-441: asserts the fictional /hold + /api/v1/payments contract; skipped
-// until the SPA is rewired to the real reservations/saga API.
-test.describe.skip("Rate-Limit UX", () => {
+test.describe("Rate-Limit UX", () => {
   test("429 response shows friendly slow-down message", async ({ page }) => {
+    const login = new LoginPage(page);
+    await login.mockPkceLogin();
+
     const seatMap = new SeatMapPage(page, SHOW_ID);
 
     await seatMap.mockSeats(MOCK_SEATS);
@@ -26,35 +27,37 @@ test.describe.skip("Rate-Limit UX", () => {
     await seatMap.clickSeat("A", 1);
 
     // Verify the UI shows a rate-limit message
-    // The SeatMapPage should display a user-friendly message on 429
     await expect(
       page.getByText(/slow down|try again|rate limit/i),
     ).toBeVisible({ timeout: 5_000 });
   });
 
   test("multiple rapid hold attempts trigger rate limit", async ({ page }) => {
+    const login = new LoginPage(page);
+    await login.mockPkceLogin();
+
     const seatMap = new SeatMapPage(page, SHOW_ID);
     let holdCount = 0;
 
     await seatMap.mockSeats(MOCK_SEATS);
 
     // First hold succeeds, subsequent ones get rate-limited
-    await page.route(`**/api/v1/shows/${SHOW_ID}/seats/*/hold`, (route) => {
+    await page.route("**/api/v1/reservations", (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
       holdCount++;
       if (holdCount === 1) {
         const expiresAt = new Date(Date.now() + 300_000).toISOString();
         return route.fulfill({
-          status: 200,
+          status: 201,
           contentType: "application/json",
           body: JSON.stringify({
             reservationId: "res-rl-1",
             showId: SHOW_ID,
-            seatId: "rl-s1",
-            section: "A",
-            rowLabel: "A",
-            seatNumber: 1,
-            priceCents: 5000,
+            userId: "e2e-user",
+            status: "HELD",
+            seatIds: ["rl-s1"],
             expiresAt,
+            ttlSeconds: 300,
           }),
         });
       }

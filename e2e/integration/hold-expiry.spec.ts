@@ -1,5 +1,5 @@
 import { test, expect } from "../fixtures";
-import { SeatMapPage, CheckoutPage } from "../pages";
+import { LoginPage, SeatMapPage, CheckoutPage } from "../pages";
 import type { MockSeat } from "../pages";
 
 const SHOW_ID = "test-show-expiry";
@@ -20,10 +20,11 @@ const MOCK_STRIPE_JS = `
   };
 `;
 
-// STAM-441: asserts the fictional /hold + /api/v1/payments contract; skipped
-// until the SPA is rewired to the real reservations/saga API.
-test.describe.skip("Hold Expiry", () => {
+test.describe("Hold Expiry", () => {
   test("hold expires after TTL and UI shows expired state", async ({ page }) => {
+    const login = new LoginPage(page);
+    await login.mockPkceLogin();
+
     const seatMap = new SeatMapPage(page, SHOW_ID);
     const checkout = new CheckoutPage(page);
 
@@ -34,11 +35,7 @@ test.describe.skip("Hold Expiry", () => {
     await seatMap.mockHoldSuccess({
       reservationId: "res-expiry-1",
       showId: SHOW_ID,
-      seatId: "exp-s1",
-      section: "A",
-      rowLabel: "A",
-      seatNumber: 1,
-      priceCents: 5000,
+      seatIds: ["exp-s1"],
       expiresAt,
     });
 
@@ -53,6 +50,9 @@ test.describe.skip("Hold Expiry", () => {
   });
 
   test("expired hold shows back-to-seats button", async ({ page }) => {
+    const login = new LoginPage(page);
+    await login.mockPkceLogin();
+
     const seatMap = new SeatMapPage(page, SHOW_ID);
     const checkout = new CheckoutPage(page);
 
@@ -62,11 +62,7 @@ test.describe.skip("Hold Expiry", () => {
     await seatMap.mockHoldSuccess({
       reservationId: "res-expiry-2",
       showId: SHOW_ID,
-      seatId: "exp-s1",
-      section: "A",
-      rowLabel: "A",
-      seatNumber: 1,
-      priceCents: 5000,
+      seatIds: ["exp-s1"],
       expiresAt,
     });
 

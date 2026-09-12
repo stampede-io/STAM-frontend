@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures";
+import { LoginPage } from "./pages";
 
 const SHOW_ID = "test-show-1";
 
@@ -8,8 +9,9 @@ const MOCK_SEATS = [
 ];
 
 const SEATS_URL = `**/api/v1/shows/${SHOW_ID}/seats`;
-const HOLD_URL = `**/api/v1/shows/${SHOW_ID}/seats/*/hold`;
-const PAYMENT_URL = "**/api/v1/payments";
+const HOLD_URL = "**/api/v1/reservations";
+const SUBMIT_PAYMENT_URL = "**/api/v1/reservations/*/submit-payment";
+const RESERVATION_STATUS_URL = "**/api/v1/reservations/*";
 
 const MOCK_STRIPE_JS = `
   window.Stripe = function() {
@@ -52,8 +54,34 @@ function makeReservation(expiresInMs = 300_000) {
   };
 }
 
+/** Mocks the terminal reservation status returned by GET .../reservations/{id}. */
+async function mockReservationOutcome(
+  page: import("@playwright/test").Page,
+  status: "CONFIRMED" | "RELEASED" | "EXPIRED",
+) {
+  await page.route(RESERVATION_STATUS_URL, (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      json: {
+        reservationId: "res-1",
+        showId: SHOW_ID,
+        userId: "e2e-user",
+        status,
+        seatIds: ["s1"],
+        expiresAt: new Date(Date.now() + 300_000).toISOString(),
+        ttlSeconds: 300,
+      },
+    });
+  });
+}
+
 async function navigateToCheckout(page: import("@playwright/test").Page, expiresInMs = 300_000) {
   const reservation = makeReservation(expiresInMs);
+
+  const login = new LoginPage(page);
+  await login.mockPkceLogin();
 
   await page.addInitScript(MOCK_STRIPE_JS);
 
@@ -66,12 +94,12 @@ async function navigateToCheckout(page: import("@playwright/test").Page, expires
   });
 
   await page.route(SEATS_URL, async (route) => {
-    if (route.request().url().includes("/hold")) return route.fallback();
     await route.fulfill({ json: MOCK_SEATS });
   });
 
   await page.route(HOLD_URL, async (route) => {
-    await route.fulfill({ status: 200, json: reservation });
+    if (route.request().method() !== "POST") return route.fallback();
+    await route.fulfill({ status: 201, json: reservation });
   });
 
   await page.goto(`/shows/${SHOW_ID}/seats`);
@@ -79,9 +107,7 @@ async function navigateToCheckout(page: import("@playwright/test").Page, expires
   await expect(page).toHaveURL(/\/checkout/, { timeout: 10_000 });
 }
 
-// STAM-441: asserts the fictional /hold + /api/v1/payments contract; skipped
-// until the SPA is rewired to the real reservations/saga API.
-test.describe.skip("Checkout Flow", () => {
+test.describe("Checkout Flow", () => {
   test("displays seat summary and countdown after hold", async ({ page }) => {
     await navigateToCheckout(page);
 
@@ -130,11 +156,8 @@ test.describe.skip("Checkout Flow", () => {
   test("payment success shows confirmation", async ({ page }) => {
     await navigateToCheckout(page);
 
-    await page.route(PAYMENT_URL, async (route) => {
-      await route.fulfill({
-        json: { status: "SUCCESS", bookingId: "booking-1" },
-      });
-    });
+    await page.route(SUBMIT_PAYMENT_URL, (route) => route.fulfill({ status: 202 }));
+    await mockReservationOutcome(page, "CONFIRMED");
 
     await page.getByTestId("pay-button").click();
 
@@ -146,29 +169,25 @@ test.describe.skip("Checkout Flow", () => {
   test("payment failure shows error message", async ({ page }) => {
     await navigateToCheckout(page);
 
-    await page.route(PAYMENT_URL, async (route) => {
-      await route.fulfill({
-        status: 402,
-        json: { status: "FAILED", message: "Insufficient funds" },
-      });
-    });
+    // The saga runs asynchronously — a synchronous failure here means
+    // submit-payment itself couldn't be started (e.g. gateway/server error),
+    // not a card decline (declines only surface via reservation status).
+    await page.route(SUBMIT_PAYMENT_URL, (route) =>
+      route.fulfill({ status: 500, body: "Internal error" }),
+    );
 
     await page.getByTestId("pay-button").click();
 
     const error = page.getByTestId("payment-error");
     await expect(error).toBeVisible({ timeout: 10_000 });
-    await expect(error).toContainText("Insufficient funds");
+    await expect(error).toContainText("Failed to start payment");
   });
 
-  test("payment expired shows hold expired screen", async ({ page }) => {
+  test("payment declined or hold expired shows hold-expired screen", async ({ page }) => {
     await navigateToCheckout(page);
 
-    await page.route(PAYMENT_URL, async (route) => {
-      await route.fulfill({
-        status: 410,
-        json: { status: "EXPIRED", message: "Hold expired during payment" },
-      });
-    });
+    await page.route(SUBMIT_PAYMENT_URL, (route) => route.fulfill({ status: 202 }));
+    await mockReservationOutcome(page, "RELEASED");
 
     await page.getByTestId("pay-button").click();
 

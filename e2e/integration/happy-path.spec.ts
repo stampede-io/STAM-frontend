@@ -1,5 +1,5 @@
 import { test, expect } from "../fixtures";
-import { LoginPage, SeatMapPage, CheckoutPage } from "../pages";
+import { LoginPage, SeatMapPage, CheckoutPage, fakeJwt } from "../pages";
 import type { MockSeat } from "../pages";
 
 const SHOW_ID = "test-show-hp";
@@ -7,7 +7,7 @@ const SHOW_ID = "test-show-hp";
 const MOCK_SEATS: MockSeat[] = [
   { id: "hp-s1", showId: SHOW_ID, section: "A", rowLabel: "A", seatNumber: 1, priceCents: 7500, availability: "AVAILABLE" },
   { id: "hp-s2", showId: SHOW_ID, section: "A", rowLabel: "A", seatNumber: 2, priceCents: 7500, availability: "AVAILABLE" },
-  { id: "hp-s3", showId: SHOW_ID, section: "B", rowLabel: "B", seatNumber: 1, priceCents: 5000, availability: "SOLD" },
+  { id: "hp-s3", showId: SHOW_ID, section: "B", rowLabel: "B", seatNumber: 1, priceCents: 5000, availability: "CONFIRMED" },
 ];
 
 const MOCK_STRIPE_JS = `
@@ -38,16 +38,14 @@ const MOCK_STRIPE_JS = `
   };
 `;
 
-// STAM-441: asserts the fictional /hold + /api/v1/payments contract; skipped
-// until the SPA is rewired to the real reservations/saga API.
-test.describe.skip("Happy Path: login → browse → hold → pay → confirm", () => {
+test.describe("Happy Path: login → browse → hold → pay → confirm", () => {
   test("full checkout journey", async ({ page }) => {
     const login = new LoginPage(page);
     const seatMap = new SeatMapPage(page, SHOW_ID);
     const checkout = new CheckoutPage(page);
 
     // Step 1: Login via PKCE
-    await login.mockPkceLogin("hp-access-token");
+    await login.mockPkceLogin(fakeJwt({ user_id: "hp-user" }));
     await expect(login.logoutButton).toBeVisible();
 
     // Step 2: Browse to show and see seats
@@ -56,11 +54,7 @@ test.describe.skip("Happy Path: login → browse → hold → pay → confirm", 
     await seatMap.mockHoldSuccess({
       reservationId: "res-hp-1",
       showId: SHOW_ID,
-      seatId: "hp-s1",
-      section: "A",
-      rowLabel: "A",
-      seatNumber: 1,
-      priceCents: 7500,
+      seatIds: ["hp-s1"],
       expiresAt,
     });
 
