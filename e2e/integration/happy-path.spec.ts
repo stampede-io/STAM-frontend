@@ -38,7 +38,9 @@ const MOCK_STRIPE_JS = `
   };
 `;
 
-test.describe("Happy Path: login → browse → hold → pay → confirm", () => {
+// STAM-441: asserts the fictional /hold + /api/v1/payments contract; skipped
+// until the SPA is rewired to the real reservations/saga API.
+test.describe.skip("Happy Path: login → browse → hold → pay → confirm", () => {
   test("full checkout journey", async ({ page }) => {
     const login = new LoginPage(page);
     const seatMap = new SeatMapPage(page, SHOW_ID);

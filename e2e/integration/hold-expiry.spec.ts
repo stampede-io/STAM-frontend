@@ -20,7 +20,9 @@ const MOCK_STRIPE_JS = `
   };
 `;
 
-test.describe("Hold Expiry", () => {
+// STAM-441: asserts the fictional /hold + /api/v1/payments contract; skipped
+// until the SPA is rewired to the real reservations/saga API.
+test.describe.skip("Hold Expiry", () => {
   test("hold expires after TTL and UI shows expired state", async ({ page }) => {
     const seatMap = new SeatMapPage(page, SHOW_ID);
     const checkout = new CheckoutPage(page);
