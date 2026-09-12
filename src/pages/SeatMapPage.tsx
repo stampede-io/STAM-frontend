@@ -14,7 +14,7 @@ import type { Reservation } from "../types/reservation";
 export default function SeatMapPage() {
   const { showId } = useParams<{ showId: string }>();
   const navigate = useNavigate();
-  const { getAccessToken } = useAuth();
+  const { getAccessToken, isLoading: authLoading } = useAuth();
   const { seats, loading, error, refresh } = useSeatAvailability(showId);
   const [justTakenMsg, setJustTakenMsg] = useState<string | null>(null);
 
@@ -24,6 +24,13 @@ export default function SeatMapPage() {
   }
 
   async function handleSeatClick(seat: Seat) {
+    // AuthProvider's tryRefresh() on mount is async — a click that races it
+    // would otherwise read a null token and wrongly claim there's no session.
+    if (authLoading) {
+      flash("Checking your session — try again in a moment");
+      return;
+    }
+
     const token = getAccessToken();
     if (!token) {
       flash("Please log in to reserve a seat");
