@@ -29,6 +29,35 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 /**
+ * Attaches the Stripe PaymentMethod to the HELD reservation. Must precede
+ * submitPayment — booking returns 422 from submit-payment without it. The
+ * amount is priced server-side, so the client never sends one.
+ */
+export async function setPaymentMethod(
+  reservationId: string,
+  paymentMethodId: string,
+  authFetch: AuthFetch,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await authFetch(
+    `/api/v1/reservations/${reservationId}/payment-method`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paymentMethodId }),
+      signal,
+    },
+  );
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(
+      body?.detail ?? `Failed to set payment method: ${res.status}`,
+    );
+  }
+}
+
+/**
  * Starts the booking saga (AuthorizePayment -> payments.commands). The saga
  * runs asynchronously — a 202 here means the payment flow started, not that
  * it succeeded. The outcome is only observable via the reservation's status.
