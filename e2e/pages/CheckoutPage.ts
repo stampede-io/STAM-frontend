@@ -37,6 +37,10 @@ export class CheckoutPage {
   }
 
   private async mockOutcome(status: "CONFIRMED" | "RELEASED" | "EXPIRED") {
+    await this.page.route(
+      "**/api/v1/reservations/*/payment-method",
+      onlyMethod("PATCH", (route) => route.fulfill({ status: 200, json: {} })),
+    );
     await this.page.route("**/api/v1/reservations/*/submit-payment", (route) =>
       route.fulfill({ status: 202 }),
     );

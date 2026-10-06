@@ -100,6 +100,10 @@ async function navigateToCheckout(page: import("@playwright/test").Page, expires
     route.fulfill({ status: 201, json: reservation }),
   ));
 
+  await page.route("**/api/v1/reservations/*/payment-method", onlyMethod("PATCH", (route) =>
+    route.fulfill({ status: 200, json: reservation }),
+  ));
+
   await page.goto(`/shows/${SHOW_ID}/seats`);
   await page.getByTestId("seat-A-1").click();
   await expect(page).toHaveURL(/\/checkout/, { timeout: 10_000 });

@@ -8,7 +8,11 @@ import {
 } from "@stripe/react-stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
 import { useCountdown } from "../hooks/useCountdown";
-import { submitPayment, pollReservationOutcome } from "../api/payments";
+import {
+  setPaymentMethod,
+  submitPayment,
+  pollReservationOutcome,
+} from "../api/payments";
 import { useAuth } from "../auth/useAuth";
 import type { Reservation } from "../types/reservation";
 
@@ -57,19 +61,16 @@ function CheckoutForm({ reservation }: { reservation: Reservation }) {
     const cardElement = elements.getElement(CardElement);
     if (!cardElement) return;
 
-    // Validates the card client-side before we start the saga. The resulting
-    // paymentMethod id has nowhere to go yet — booking's submit-payment takes
-    // no request body and never threads a paymentMethodId through to payment's
-    // AuthorizePayment command (see STAM-booking), so every real authorize
-    // currently fails with "missing_payment_method" until that's fixed.
-    const { error } = await stripe.createPaymentMethod({
+    // Tokenises the card client-side; the PaymentMethod id is attached to the
+    // reservation (PATCH .../payment-method) before the saga starts (STAM-442).
+    const { error, paymentMethod } = await stripe.createPaymentMethod({
       type: "card",
       card: cardElement,
     });
 
-    if (error) {
+    if (error || !paymentMethod) {
       setStatus("failure");
-      setErrorMessage(error.message ?? "Card validation failed");
+      setErrorMessage(error?.message ?? "Card validation failed");
       return;
     }
 
@@ -77,6 +78,12 @@ function CheckoutForm({ reservation }: { reservation: Reservation }) {
     abortRef.current = controller;
 
     try {
+      await setPaymentMethod(
+        reservation.reservationId,
+        paymentMethod.id,
+        authFetch,
+        controller.signal,
+      );
       await submitPayment(reservation.reservationId, authFetch, controller.signal);
       const outcome = await pollReservationOutcome(
         reservation.reservationId,
