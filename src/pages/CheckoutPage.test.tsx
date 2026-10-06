@@ -47,10 +47,14 @@ function renderCheckout() {
 }
 
 describe("CheckoutPage payment submission (STAM-442)", () => {
-  beforeEach(() => authFetch.mockReset());
+  // Braces matter: mockReset() returns the mock, and a function returned from
+  // beforeEach is run by Vitest as a teardown hook — i.e. authFetch() with no URL.
+  beforeEach(() => {
+    authFetch.mockReset();
+  });
 
   it("PATCHes the paymentMethodId before submit-payment, without an amount", async () => {
-    authFetch.mockImplementation(async (url: string = "") => {
+    authFetch.mockImplementation(async (url: string) => {
       if (url.endsWith("/payment-method")) return json({ ...reservation, status: "HELD" });
       if (url.endsWith("/submit-payment")) return new Response(null, { status: 202 });
       return json({ ...reservation, status: "CONFIRMED" });
@@ -61,9 +65,10 @@ describe("CheckoutPage payment submission (STAM-442)", () => {
     await screen.findByTestId("payment-success");
 
     const calls = authFetch.mock.calls.map(([url, init]) => [url, init?.method]);
-    expect(calls.slice(0, 2)).toEqual([
+    expect(calls).toEqual([
       ["/api/v1/reservations/res-1/payment-method", "PATCH"],
       ["/api/v1/reservations/res-1/submit-payment", "POST"],
+      ["/api/v1/reservations/res-1", undefined],
     ]);
     const patchBody = JSON.parse(authFetch.mock.calls[0]![1].body);
     expect(patchBody).toEqual({ paymentMethodId: "pm_card_visa" });
