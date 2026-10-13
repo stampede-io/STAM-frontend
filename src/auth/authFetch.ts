@@ -16,6 +16,11 @@ async function refreshAccessToken(): Promise<string | null> {
   return data.access_token as string;
 }
 
+export type AuthFetch = (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+) => Promise<Response>;
+
 export function createAuthFetch(
   getToken: TokenGetter,
   setToken: TokenSetter,

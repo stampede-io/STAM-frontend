@@ -1,5 +1,5 @@
 import { test, expect } from "../fixtures";
-import { SeatMapPage } from "../pages";
+import { LoginPage, SeatMapPage, fakeJwt } from "../pages";
 import type { MockSeat } from "../pages";
 
 const SHOW_ID = "test-show-race";
@@ -18,12 +18,10 @@ test.describe("Seat-Taken Race", () => {
     const page1 = await ctx1.newPage();
     const page2 = await ctx2.newPage();
 
-    // Mock refresh for both contexts
-    for (const page of [page1, page2]) {
-      await page.route("**/api/v1/oauth2/refresh", (route) =>
-        route.fulfill({ status: 401, body: "no session" }),
-      );
-    }
+    const login1 = new LoginPage(page1);
+    const login2 = new LoginPage(page2);
+    await login1.mockPkceLogin(fakeJwt({ user_id: "race-winner" }));
+    await login2.mockPkceLogin(fakeJwt({ user_id: "race-loser" }));
 
     const seatMap1 = new SeatMapPage(page1, SHOW_ID);
     const seatMap2 = new SeatMapPage(page2, SHOW_ID);
@@ -37,11 +35,7 @@ test.describe("Seat-Taken Race", () => {
     await seatMap1.mockHoldSuccess({
       reservationId: "res-race-winner",
       showId: SHOW_ID,
-      seatId: "race-s1",
-      section: "A",
-      rowLabel: "A",
-      seatNumber: 1,
-      priceCents: 5000,
+      seatIds: ["race-s1"],
       expiresAt,
     });
 

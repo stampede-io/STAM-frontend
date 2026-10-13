@@ -1,7 +1,9 @@
 import { test, expect } from "./fixtures";
 
 const AUTH_CONFIG = {
-  authorizeUrl: "/api/v1/oauth2/authorize",
+  // authorize is a direct nav to the Authorization Server via the gateway;
+  // token/refresh/logout are the gateway BFF (ADR-0005).
+  authorizeUrl: "/oauth2/authorize",
   tokenUrl: "/api/v1/oauth2/token",
   refreshUrl: "/api/v1/oauth2/refresh",
   logoutUrl: "/api/v1/oauth2/logout",

@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Elements,
   CardElement,
@@ -8,7 +8,12 @@ import {
 } from "@stripe/react-stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
 import { useCountdown } from "../hooks/useCountdown";
-import { submitPayment } from "../api/payments";
+import {
+  setPaymentMethod,
+  submitPayment,
+  pollReservationOutcome,
+} from "../api/payments";
+import { useAuth } from "../auth/useAuth";
 import type { Reservation } from "../types/reservation";
 
 const stripePromise = loadStripe(
@@ -22,11 +27,15 @@ function CheckoutForm({ reservation }: { reservation: Reservation }) {
   const stripe = useStripe();
   const elements = useElements();
   const navigate = useNavigate();
+  const { authFetch } = useAuth();
   const { secondsLeft, expired, formatted } = useCountdown(
     reservation.expiresAt,
   );
   const [status, setStatus] = useState<PaymentStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const WARNING_THRESHOLD = 60;
   const isWarning = secondsLeft <= WARNING_THRESHOLD && secondsLeft > 0;
@@ -52,29 +61,42 @@ function CheckoutForm({ reservation }: { reservation: Reservation }) {
     const cardElement = elements.getElement(CardElement);
     if (!cardElement) return;
 
+    // Tokenises the card client-side; the PaymentMethod id is attached to the
+    // reservation (PATCH .../payment-method) before the saga starts (STAM-442).
     const { error, paymentMethod } = await stripe.createPaymentMethod({
       type: "card",
       card: cardElement,
     });
 
-    if (error) {
+    if (error || !paymentMethod) {
       setStatus("failure");
-      setErrorMessage(error.message ?? "Card validation failed");
+      setErrorMessage(error?.message ?? "Card validation failed");
       return;
     }
 
-    const result = await submitPayment({
-      reservationId: reservation.reservationId,
-      paymentMethodId: paymentMethod.id,
-    });
+    const controller = new AbortController();
+    abortRef.current = controller;
 
-    if (result.status === "SUCCESS") {
-      setStatus("success");
-    } else if (result.status === "EXPIRED") {
-      setStatus("expired");
-    } else {
+    try {
+      await setPaymentMethod(
+        reservation.reservationId,
+        paymentMethod.id,
+        authFetch,
+        controller.signal,
+      );
+      await submitPayment(reservation.reservationId, authFetch, controller.signal);
+      const outcome = await pollReservationOutcome(
+        reservation.reservationId,
+        authFetch,
+        controller.signal,
+      );
+      setStatus(outcome.status === "CONFIRMED" ? "success" : "expired");
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       setStatus("failure");
-      setErrorMessage(result.message ?? "Payment failed — please try again");
+      setErrorMessage(
+        err instanceof Error ? err.message : "Payment failed — please try again",
+      );
     }
   }
 

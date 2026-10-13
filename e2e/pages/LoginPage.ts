@@ -1,5 +1,22 @@
 import type { Page } from "@playwright/test";
 
+/** A signature-less JWT whose payload carries the claims the SPA reads. */
+export function fakeJwt(claims: Record<string, unknown> = {}): string {
+  const b64 = (o: unknown) =>
+    Buffer.from(JSON.stringify(o))
+      .toString("base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+  const payload = {
+    sub: "e2e-user",
+    user_id: "00000000-0000-0000-0000-0000000000e2",
+    roles: ["USER"],
+    ...claims,
+  };
+  return `${b64({ alg: "none", typ: "JWT" })}.${b64(payload)}.sig`;
+}
+
 export class LoginPage {
   constructor(private page: Page) {}
 
@@ -19,7 +36,7 @@ export class LoginPage {
     return this.page.getByTestId("auth-loading");
   }
 
-  async mockPkceLogin(accessToken = "test-token") {
+  async mockPkceLogin(accessToken: string = fakeJwt()) {
     await this.page.addInitScript(() => {
       sessionStorage.setItem("pkce_code_verifier", "e2e-verifier");
       sessionStorage.setItem("pkce_state", "e2e-state");

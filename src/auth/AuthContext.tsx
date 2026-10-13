@@ -7,6 +7,7 @@ import {
 } from "react";
 import { generateCodeVerifier, generateCodeChallenge } from "./pkce";
 import { AUTH_CONFIG } from "./config";
+import { createAuthFetch, type AuthFetch } from "./authFetch";
 
 interface AuthState {
   accessToken: string | null;
@@ -19,6 +20,7 @@ export interface AuthContextValue extends AuthState {
   logout: () => Promise<void>;
   handleCallback: (code: string, state: string) => Promise<void>;
   getAccessToken: () => string | null;
+  authFetch: AuthFetch;
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
@@ -152,6 +154,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const getAccessToken = useCallback(() => auth.accessToken, [auth.accessToken]);
 
+  // Recreated each render so its getToken closure always sees the latest
+  // auth.accessToken — cheap (just closures), and avoids a stale-token bug
+  // that a memoized version would need a ref to work around.
+  const authFetch = createAuthFetch(
+    () => auth.accessToken,
+    (token) =>
+      setAuth((prev) => ({
+        ...prev,
+        accessToken: token,
+        isAuthenticated: token !== null,
+      })),
+    logout,
+  );
+
   return (
     <AuthContext.Provider
       value={{
@@ -160,6 +176,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout,
         handleCallback,
         getAccessToken,
+        authFetch,
       }}
     >
       {children}
